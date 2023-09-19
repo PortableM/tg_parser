@@ -12,21 +12,19 @@ try:
     page_response.raise_for_status()
     soup = BeautifulSoup(page_response.content, "html.parser")
 
-    # Найти последний пост
-    post_elements = soup.select(".tgme_widget_message")
-    last_post_element = post_elements[-1] if post_elements else None
+    # Определяем кол-во подписчиков
+    header_element = soup.find('div', class_='tgme_header_counter')
 
-    if last_post_element:
-        # Найти кол-во лайков последнего поста
-        view_count_element = last_post_element.select_one('.tgme_widget_message_views')
-        view_count = view_count_element.get_text()
-        if view_count:
-            print(f"Количество просмотров последнего поста: {view_count}")
+    if header_element:
+        # Вывести кол-во подписчиков
+        subscribers_count = header_element.get_text()
+        if subscribers_count:
+            print(f"Количество подписчиков канала: {subscribers_count}")
         else:
-            print("Нет количества просмотров")
+            print("Не удалось определить кол-во подписчиков")
 
     else:
-        print("Не найдено постов")
+        print("Не найден хедер")
 
 except requests.exceptions.RequestException as e:
     print(f"Ошибка: {e}")
