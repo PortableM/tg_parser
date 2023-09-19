@@ -1,30 +1,35 @@
-import requests
-from bs4 import BeautifulSoup
+import schedule
+import time
+from Parser import Parser
 
-channel_name = input("Введите название канала: ")
-target_url = f"https://t.me/s/{channel_name}"
-headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36"
-}
 
-try:
-    page_response = requests.get(target_url, headers=headers)
-    page_response.raise_for_status()
-    soup = BeautifulSoup(page_response.content, "html.parser")
+def input_channels():
+    """Возвращает список парсеров для каждого канала"""
+    channels = []
+    while channel := input("Введите название канала: "):
+        channels.append(Parser(channel))
 
-    # Определяем кол-во подписчиков
-    header_element = soup.find('div', class_='tgme_header_counter')
+    return channels
 
-    if header_element:
-        # Вывести кол-во подписчиков
-        subscribers_count = header_element.get_text()
-        if subscribers_count:
-            print(f"Количество подписчиков канала: {subscribers_count}")
-        else:
-            print("Не удалось определить кол-во подписчиков")
 
-    else:
-        print("Не найден хедер")
+def print_subscribers_count():
+    """Выводит кол-во подписчиков для списка каналов."""
+    for channel in target_channels:
+        channel.parse()
+        count = channel.get_subscribers_count()
+        print(f"Количество подписчиков канала {channel.get_name()}: {count}")
 
-except requests.exceptions.RequestException as e:
-    print(f"Ошибка: {e}")
+
+target_channels = input_channels()
+
+# Принт резузльтатов сразу
+print_subscribers_count()
+
+# Устанавливаем задачи в scedular.
+# Пока каждые 10 секунд, чтобы сразу видеть работу.
+schedule.every(10).seconds.do(print_subscribers_count)
+
+# Поиск задач для выполнения в schedular каждую секунду.
+while True:
+    schedule.run_pending()
+    time.sleep(1)
