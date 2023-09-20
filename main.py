@@ -7,7 +7,7 @@ def input_channels():
     """Возвращает список парсеров для каждого канала"""
     channels = []
     while channel := input("Введите название канала: "):
-        channels.append(Parser(channel))
+        channels.append(Parser(channel, default_page=False))
 
     return channels
 
@@ -27,7 +27,7 @@ print_subscribers_count()
 
 # Устанавливаем задачи в scedular.
 # Пока каждые 10 секунд, чтобы сразу видеть работу.
-schedule.every(10).seconds.do(print_subscribers_count)
+schedule.every().hour.do(print_subscribers_count)
 
 # Поиск задач для выполнения в schedular каждую секунду.
 while True:
