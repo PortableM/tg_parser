@@ -1,11 +1,11 @@
 import json
 import schedule
 import time
-from Parser import Parser
-from multiprocessing import Pool, cpu_count
+from Parser import Parser, HttpClient, TelegramChannelParser
+import asyncio
 
 
-PARSE_AMOUNT = 10
+CHANNELS_LIMIT = 200
 
 
 def get_channels_from_json(file_name: str, limit: int = 0) -> list:
@@ -14,55 +14,95 @@ def get_channels_from_json(file_name: str, limit: int = 0) -> list:
         data = json.load(file)
         if limit == 0:
             return [channel_data['alias'][1:] for channel_data in data]
-        return [channel_data['alias'][1:] for channel_data in data[:limit + 1]]
+        return [channel_data['alias'][1:] for channel_data in data[:limit]]
 
 
-def init_parsers(channels: list) -> list:
-    """Возвращает список парсеров для каждого канала"""
-    return [Parser(channel_name, default_page=False)
-            for channel_name in channels]
+async def scrape_telegram_channels(channels):
+    results = []
+    parser_tasks = []
 
+    http_client = HttpClient(base_url="https://t.me/")
 
-def parse_channel(channel_parser):
-    """Парсит канал и возвращает количество подписчиков"""
-    channel_parser.parse()
-    count = channel_parser.get_subscribers_count()
+    async def fetch_data(channel: str) -> tuple:
+        """Собирает данные о подписчика с канала асинхронно."""
+        try:
+            telegram_parser = TelegramChannelParser(channel, http_client)
+            subscribers_count = await telegram_parser.fetch_subscribers_count()
+            results.append((channel, subscribers_count))
 
-    return f"{channel_parser.get_name()}: {count}"
+        except Exception as e:
+            results.append((channel, None))
+            print(f"Error scraping data from channel {channel}: {str(e)}")
+
+    for channel in channels:
+        task = asyncio.create_task(fetch_data(channel))
+        parser_tasks.append(task)
+
+    await asyncio.gather(*parser_tasks)
+
+    return results
 
 
 def output_text(text, output_file):
     """Записывает текст в отдельный файл"""
-    with open(output_file, "a") as file:
+    with open(output_file, "w") as file:
         current_time = time.ctime(time.time())
         file.write("Время записи: " + current_time)
         file.write(text)
 
 
-def performance_test():
-    channels_names = get_channels_from_json('channels.json',
-                                            limit=PARSE_AMOUNT)
-    parsers = init_parsers(channels_names)
+def multiple_channel_parsing_test():
+    """Получаем каналы, парсим, собирает стату и сохранят в файл"""
+    # Извлечение данных о каналов
+    channels = get_channels_from_json('channels.json', limit=CHANNELS_LIMIT)
 
-    # Включаем мультипроцессинг
-    num_cores = cpu_count()
-    print(f"Использовано ядер: {num_cores}")
-    pool = Pool(processes=num_cores)
+    # Парсинг
+    print('Начинаем парсить...')
+    start = time.time()
+    subscribers_count = asyncio.run(
+        scrape_telegram_channels(channels))
+    print(f"Количество спарсенных каналов: {len(subscribers_count)}")
+    end = time.time()
+    print(f'Спарсено за {end - start} с.')
 
-    # Количество субскриберов для каждого канала
-    subscribers_count_list = pool.map(parse_channel, parsers)
+    # Статистика
+    successfully_parsed = list(
+        data[0] + ' ' + data[1] for data in subscribers_count
+        if data[1] is not None)
+    print(f'Успешно спарсировано: {len(successfully_parsed)}')
 
-    # Принт результатов
-    output_text('\n'.join(subscribers_count_list), 'subscribers.txt')
+    badly_parsed = list(
+        data[0] for data in subscribers_count
+        if data[1] is None)
+    print(f'Неудачно спарсировано: {len(badly_parsed)}')
+
+    # Сохранение в файле
+    output_text('\n'.join(successfully_parsed), 'subscribers.txt')
+    output_text('\n'.join(badly_parsed), 'bad.txt')
+
+
+async def test_telegram_channel_parser(channel_name):
+    http_client = HttpClient(base_url="https://t.me/")
+    parser = TelegramChannelParser(channel_name, http_client)
+    subscribers_count = await parser.fetch_subscribers_count()
+    print(f"Subscribers count for {channel_name}: {subscribers_count}")
+    http_client.close_session()
 
 
 if __name__ == '__main__':
-    performance_test()
+    # multiple test
+    multiple_channel_parsing_test()
+    # class_test()
 
-    # Устанавливаем задачи в schedular.
-    schedule.every().hour.do(performance_test)
+    # default async test
+    # channel_name = "python_tricks"
+    # asyncio.run(test_telegram_channel_parser(channel_name))
 
-    # Поиск задач для выполнения в schedular каждую секунду.
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
+
+    # # Устанавливаем задачи в schedular.
+    # schedule.every().hour.do(multiple_channel_parsing_test)
+
+    # # Поиск задач для выполнения в schedular каждую секунду.
+    # while True:
+    #     schedule.run_pending()
+    #     time.sleep(1)

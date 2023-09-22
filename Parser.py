@@ -1,48 +1,36 @@
-import requests
 import re
 from bs4 import BeautifulSoup
-
-
-DEFAULT_PAGE = "https://t.me/s/"
-OVERVIEW_PAGE = "https://t.me/"
+import aiohttp
+import asyncio
 
 
 class Parser:
-    def __init__(self, channel_name, default_page=True):
-        """:param default_page: страница канала если True,\
-        иначе обзорная страница канала """
+    def __init__(self, http_client, url):
+        self.http_client = http_client
+        self.url = url
+
+    async def fetch_content(self):
+        content = await self.http_client.get(self.url)
+        return content
+
+
+class TelegramChannelParser:
+    def __init__(self, channel_name: str, http_client):
         self.channel_name = channel_name
-        self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
-            AppleWebKit/537.36 (KHTML, like Gecko)\
-            Chrome/96.0.4664.110 Safari/537.36"
-        }
-        self.page_response = None
-        self.domain = DEFAULT_PAGE if default_page else OVERVIEW_PAGE
+        self.http_client = http_client
 
-    def get_name(self):
-        return self.channel_name
-
-    def parse(self):
-        """Парсим страницу"""
-        try:
-            target_url = self.domain + self.channel_name
-            page_response = requests.get(target_url, headers=self.headers)
-            page_response.raise_for_status()
-
-            self.page_response = page_response
-
-        except requests.exceptions.RequestException as e:
-            return f"Ошибка: {e}"
-
-    def get_subscribers_count(self):
-        """Возвращает количество подписчиков на канале"""
-        if not hasattr(self, 'page_response'):
-            return """Отсутствует ответ от канала. Вызовите метод parse\
-                сначала"""
+    async def fetch_subscribers_count(self):
+        """
+        Получает данные о кол-ве субскриберов на канал\
+        Использует название канала как относительный url
+        """
+        url = self.channel_name
+        # Получаем контент страницы
+        self.parser = Parser(self.http_client, url)
+        channel_content = await self.parser.fetch_content()
 
         # Определяем кол-во подписчиков
-        soup = BeautifulSoup(self.page_response.content, "html.parser")
+        soup = BeautifulSoup(channel_content, "html.parser")
         target_element = soup.find('div', class_='tgme_page_extra')
 
         if target_element:
@@ -51,8 +39,44 @@ class Parser:
             if subscribers_count:
                 subscribers_count = re.sub(r'\D', '', subscribers_count)
                 return subscribers_count
-            else:
-                return "Не найден текст элемента"
 
-        else:
-            return "Не найден нужный элемент"
+            return None
+
+        return None
+
+
+class HttpClient:
+    def __init__(self, base_url=None):
+        self.base_url = base_url
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
+            AppleWebKit/537.36 (KHTML, like Gecko)\
+            Chrome/96.0.4664.110 Safari/537.36"
+        }
+        self.session = aiohttp.ClientSession(
+            base_url=self.base_url,
+            headers=self.headers
+        )
+
+    async def get(self, url):
+        try:
+            # Объединяем url, если есть базовый url.
+            if self.base_url:
+                url = '/' + url
+
+            # Получаем контент страницы
+            async with self.session.get(url) as response:
+                response.raise_for_status()
+                content = await response.content.read()
+                return content
+
+        except aiohttp.ClientError as e:
+            print(f"HTTP request error occurred: {str(e)}")
+            return None
+
+        except asyncio.TimeoutError as e:
+            print(f'HTTP request timed out: {str(e)}')
+            return None
+
+    async def close_session(self):
+        await self.session.close()
